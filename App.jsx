@@ -590,6 +590,36 @@ function TrainingView({ sportId, accent }) {
             </div>
             <button onClick={()=>{if(calMonth===11){setCalYear(y=>y+1);setCalMonth(0);}else setCalMonth(m=>m+1);setCalSelected(null);}} style={{...btn,background:"#0f172a",color:"#94a3b8",padding:"6px 14px",border:"1px solid #1e293b"}}>→</button>
           </div>
+          {/* ストリーク表示 */}
+          {(()=>{
+            const today = new Date().toISOString().split("T")[0];
+            let streak = 0;
+            let d = new Date();
+            while(true){
+              const ds = d.toISOString().split("T")[0];
+              if(logDates.has(ds)){ streak++; d.setDate(d.getDate()-1); }
+              else break;
+            }
+            if(streak===0){
+              // 昨日までの連続を確認
+              d = new Date(); d.setDate(d.getDate()-1);
+              while(true){
+                const ds = d.toISOString().split("T")[0];
+                if(logDates.has(ds)){ streak++; d.setDate(d.getDate()-1); }
+                else break;
+              }
+            }
+            if(streak<1) return null;
+            return (
+              <div style={{background:"linear-gradient(135deg,"+accent+"22,"+accent+"11)",border:"1px solid "+accent+"44",borderRadius:12,padding:"12px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:28}}>🔥</span>
+                <div>
+                  <div style={{fontSize:18,fontWeight:900,color:accent}}>{streak}日連続記録中！</div>
+                  <div style={{fontSize:11,color:"#64748b"}}>この調子で続けよう</div>
+                </div>
+              </div>
+            );
+          })()}
           <div style={{background:"#0a0f1e",border:"1px solid #1e293b",borderRadius:14,padding:16,marginBottom:16}}>
             <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4,marginBottom:8}}>
               {["日","月","火","水","木","金","土"].map(d=>(
@@ -601,13 +631,17 @@ function TrainingView({ sportId, accent }) {
               {Array.from({length:daysInMonth}).map((_,i)=>{
                 const d=i+1;
                 const dateStr=calYear+"-"+String(calMonth+1).padStart(2,"0")+"-"+String(d).padStart(2,"0");
-                const hasLog=logDates.has(dateStr);
+                const dayLogs=logs.filter(l=>l.date===dateStr);
+                const hasLog=dayLogs.length>0;
+                const dayTotal=dayLogs.reduce((s,l)=>s+(l.duration||0),0);
                 const isToday=dateStr===new Date().toISOString().split("T")[0];
                 const isSel=calSelected===dateStr;
+                const fmtShort=(s)=>{ const h=Math.floor(s/3600),m=Math.floor((s%3600)/60); return h>0?h+"h"+String(m).padStart(2,"0")+"m":m+"m"; };
                 return (
-                  <div key={d} onClick={()=>setCalSelected(isSel?null:dateStr)} style={{textAlign:"center",padding:"8px 2px",borderRadius:8,cursor:"pointer",background:isSel?accent+"33":isToday?"#1e293b":"transparent",border:isSel?"1px solid "+accent+"66":isToday?"1px solid #334155":"1px solid transparent",transition:"all 0.15s"}}>
-                    <div style={{fontSize:13,fontWeight:isToday?700:400,color:isToday?accent:"#94a3b8"}}>{d}</div>
-                    {hasLog && <div style={{width:6,height:6,borderRadius:"50%",background:accent,margin:"2px auto 0"}}/>}
+                  <div key={d} onClick={()=>setCalSelected(isSel?null:dateStr)} style={{textAlign:"center",padding:"6px 2px",borderRadius:8,cursor:"pointer",background:isSel?accent+"33":isToday?"#1e293b":"transparent",border:isSel?"1px solid "+accent+"66":isToday?"1px solid #334155":"1px solid transparent",transition:"all 0.15s"}}>
+                    <div style={{fontSize:12,fontWeight:isToday?700:400,color:isToday?accent:"#94a3b8"}}>{d}</div>
+                    {hasLog && <div style={{width:5,height:5,borderRadius:"50%",background:accent,margin:"1px auto"}}/>}
+                    {dayTotal>0 && <div style={{fontSize:8,color:accent,fontWeight:600,lineHeight:1.2}}>{fmtShort(dayTotal)}</div>}
                   </div>
                 );
               })}
@@ -1039,6 +1073,34 @@ export default function SportsNotebook() {
   const updateMeal =(i,f,v)=>{const m=[...form.meals];m[i]={...m[i],[f]:v};setForm({...form,meals:m});};
   const addMeal    =()=>setForm({...form,meals:[...form.meals,{name:"",kcal:""}]});
   const removeMeal =(i)=>setForm({...form,meals:form.meals.filter((_,idx)=>idx!==i)});
+
+  const calcKcal = async (i, name) => {
+    if (!name) return;
+    const meals = [...form.meals];
+    meals[i] = {...meals[i], loadingKcal:true};
+    setForm(f=>({...f, meals}));
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:100,
+          messages:[{role:"user", content:`「${name}」のカロリーをkcalで答えてください。数字のみ（例:180）で答えてください。わからない場合は「?」と答えてください。`}]
+        })
+      });
+      const data = await res.json();
+      const text = data.content?.[0]?.text?.trim()||"?";
+      const kcal = text.match(/\d+/)?.[0]||"";
+      const m2 = [...form.meals];
+      m2[i] = {...m2[i], loadingKcal:false, kcal: kcal||m2[i].kcal, kcalNote: kcal ? `AI推定: 約${kcal}kcal` : "カロリー不明"};
+      setForm(f=>({...f, meals:m2}));
+    } catch {
+      const m2 = [...form.meals];
+      m2[i] = {...m2[i], loadingKcal:false, kcalNote:"取得失敗"};
+      setForm(f=>({...f, meals:m2}));
+    }
+  };
   const updateVideo=(i,f,v)=>{const vs=[...form.videos];vs[i]={...vs[i],[f]:v};setForm({...form,videos:vs});};
   const addVideo   =()=>setForm({...form,videos:[...form.videos,{url:"",memo:""}]});
   const removeVideo=(i)=>setForm({...form,videos:form.videos.filter((_,idx)=>idx!==i)});
@@ -1173,10 +1235,16 @@ export default function SportsNotebook() {
             <Sec title="🍽 食事・カロリー" accent={accent}>
               <div style={{display:"flex",flexDirection:"column",gap:8}}>
                 {form.meals.map((meal,i)=>(
-                  <div key={i} style={{display:"flex",gap:8,alignItems:"center"}}>
-                    <input type="text" placeholder="料理名（例: 鶏むね肉）" value={meal.name} onChange={e=>updateMeal(i,"name",e.target.value)} style={{...inp,flex:2}}/>
-                    <input type="number" placeholder="kcal" value={meal.kcal} onChange={e=>updateMeal(i,"kcal",e.target.value)} style={{...inp,flex:1,minWidth:0}}/>
-                    {form.meals.length>1 && <button onClick={()=>removeMeal(i)} style={{...btn,background:"#1e293b",color:"#f87171",padding:"8px 10px",flexShrink:0}}>×</button>}
+                  <div key={i} style={{background:"#020617",border:"1px solid #1e293b",borderRadius:10,padding:"10px 12px"}}>
+                    <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:meal.kcal?6:0}}>
+                      <input type="text" placeholder="料理名（例: シャケおにぎり）" value={meal.name} onChange={e=>updateMeal(i,"name",e.target.value)} style={{...inp,flex:2,background:"transparent",border:"none",padding:"0"}}/>
+                      <input type="number" placeholder="kcal" value={meal.kcal} onChange={e=>updateMeal(i,"kcal",e.target.value)} style={{...inp,width:70,flex:"none",fontSize:13,padding:"6px 8px",textAlign:"center"}}/>
+                      <button onClick={()=>calcKcal(i,meal.name)} disabled={!meal.name||meal.loadingKcal} style={{...btn,background:accent+"22",color:accent,border:"1px solid "+accent+"44",padding:"6px 10px",fontSize:11,flexShrink:0,opacity:meal.loadingKcal?0.5:1}}>
+                        {meal.loadingKcal?"...":"AI"}
+                      </button>
+                      {form.meals.length>1 && <button onClick={()=>removeMeal(i)} style={{...btn,background:"transparent",color:"#f87171",padding:"6px 8px",flexShrink:0}}>×</button>}
+                    </div>
+                    {meal.kcalNote && <div style={{fontSize:11,color:"#64748b",marginTop:4}}>{meal.kcalNote}</div>}
                   </div>
                 ))}
                 {form.meals.some(m=>m.kcal) && <div style={{textAlign:"right",color:"#fb923c",fontSize:13,fontWeight:700}}>合計 {form.meals.reduce((s,m)=>s+(parseInt(m.kcal)||0),0)} kcal</div>}
