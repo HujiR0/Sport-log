@@ -14,7 +14,15 @@
     <title>SportLog</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      body { background: #020617; color: #e2e8f0; font-family: 'Noto Sans JP', sans-serif; }
+      body {
+        background: #020617;
+        color: #e2e8f0;
+        font-family: 'Noto Sans JP', sans-serif;
+        padding-top: env(safe-area-inset-top);
+        padding-left: env(safe-area-inset-left);
+        padding-right: env(safe-area-inset-right);
+        padding-bottom: env(safe-area-inset-bottom);
+      }
       #root { min-height: 100vh; }
     </style>
   </head>
